@@ -6,7 +6,13 @@ const DAY = 86_400_000;
 let state = { provider: { name: '', demo: false }, currency: 'USD', products: [] };
 let selectedId = null;
 let range = 30; // days; 0 = all
-let historyCache = { id: null, points: [] };
+let historyCache = { id: null, points: [], amazon: [] };
+let chartMode = 'best'; // 'best' | 'amazon'
+
+const STORE_COLORS = { 'Amazon.com.be': 'var(--series-1)', 'Amazon.nl': 'var(--series-2)', 'Amazon.de': 'var(--series-3)' };
+const FALLBACK_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
+const storeColor = (store, i) => STORE_COLORS[store] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length];
+const isAmazon = (store) => /^amazon\./i.test(store);
 
 // ---------- helpers ----------
 
@@ -178,8 +184,11 @@ async function loadHistory() {
   if (!selectedId) return;
   const id = selectedId;
   try {
-    const points = await api('GET', `/api/products/${id}/history`);
-    historyCache = { id, points };
+    const [points, amazon] = await Promise.all([
+      api('GET', `/api/products/${id}/history`),
+      api('GET', `/api/products/${id}/amazon`),
+    ]);
+    historyCache = { id, points, amazon };
   } catch (err) {
     showError(err);
   }
@@ -194,9 +203,16 @@ function renderDetail() {
   }
   panel.hidden = false;
 
-  const points = historyCache.id === p.id ? historyCache.points : [];
+  const cache = historyCache.id === p.id ? historyCache : { points: [], amazon: [] };
   const cutoff = range ? Date.now() - range * DAY : 0;
-  const visible = points.filter((pt) => pt.t >= cutoff);
+  const inRange = (pt) => pt.t >= cutoff;
+  const visible = cache.points.filter(inRange);
+  const amazonSeries = cache.amazon
+    .map((s, i) => ({ name: s.store, color: storeColor(s.store, i), points: s.points.filter(inRange) }))
+    .filter((s) => s.points.length);
+  const hasAmazon = cache.amazon.length > 1;
+  if (!hasAmazon) chartMode = 'best';
+  const amazonMode = chartMode === 'amazon';
   const chartBox = h('div', { class: 'chart' });
 
   const targetInput = h('input', {
@@ -221,9 +237,30 @@ function renderDetail() {
     await reload();
   });
 
-  const rangeButtons = [[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, label]) =>
-    h('button', { type: 'button', 'aria-pressed': String(range === d), onclick: () => { range = d; renderDetail(); } }, label),
-  );
+  const toggle = (value, label, current, set) =>
+    h('button', { type: 'button', 'aria-pressed': String(current === value), onclick: () => { set(value); renderDetail(); } }, label);
+  const modeButtons = hasAmazon
+    ? h('div', { class: 'ranges', role: 'group', 'aria-label': 'Chart' },
+        toggle('best', 'Best price', chartMode, (v) => (chartMode = v)),
+        toggle('amazon', 'Amazon marketplaces', chartMode, (v) => (chartMode = v)))
+    : null;
+  const rangeButtons = h('div', { class: 'ranges', role: 'group', 'aria-label': 'Time range' },
+    [[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, label]) => toggle(d, label, range, (v) => (range = v))));
+
+  // Which Amazon marketplace is cheapest right now, and by how much.
+  const amazonNow = p.offers.filter((o) => isAmazon(o.store));
+  let amazonSummary = null;
+  if (amazonMode && amazonNow.length > 1) {
+    const [cheapest, ...rest] = amazonNow;
+    const dearest = rest.at(-1);
+    amazonSummary = h('p', { class: 'summary' },
+      h('b', {}, cheapest.store), ` is cheapest right now at ${money(cheapest.price)}, `,
+      `${money(dearest.price - cheapest.price)} (${Math.round(((dearest.price - cheapest.price) / dearest.price) * 100)}%) less than ${dearest.store}.`);
+  }
+
+  const legend = amazonMode
+    ? h('ul', { class: 'legend' }, amazonSeries.map((s) => h('li', {}, h('i', { style: `background:${s.color}` }), s.name)))
+    : null;
 
   const maxOffer = Math.max(...p.offers.map((o) => o.price), 1);
   const best = p.best;
@@ -233,20 +270,29 @@ function renderDetail() {
     return h(
       'div',
       { class: 'offer' },
-      h('span', {}, store),
+      h('span', {}, store, o.title ? h('div', { class: 'muted clip', title: o.title }, o.title) : null),
       h('span', { class: 'bar', 'aria-hidden': 'true' }, h('i', { style: `width:${(o.price / maxOffer) * 100}%` })),
       h('span', { class: 'amt' }, h('b', {}, money(o.price)), i > 0 && best ? h('span', { class: 'muted' }, ` +${money(o.price - best.price)}`) : h('span', { class: 'muted' }, ' lowest')),
     );
   });
 
+  let tableHead, tableRows;
+  if (amazonMode) {
+    const times = [...new Set(amazonSeries.flatMap((s) => s.points.map((pt) => pt.t)))].sort((a, b) => b - a);
+    tableHead = ['Checked', ...amazonSeries.map((s) => s.name)];
+    tableRows = times.map((t) => [dateTime(t), ...amazonSeries.map((s) => money(s.points.find((pt) => pt.t === t)?.price))]);
+  } else {
+    tableHead = ['Checked', 'Best price', 'Store'];
+    tableRows = [...visible].reverse().map((pt) => [dateTime(pt.t), money(pt.price), pt.store]);
+  }
   const dataTable = h(
     'details',
     {},
     h('summary', {}, 'View data as a table'),
     h('div', { class: 'scroll' },
       h('table', {},
-        h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Checked'), h('th', { scope: 'col', class: 'num' }, 'Best price'), h('th', { scope: 'col' }, 'Store'))),
-        h('tbody', {}, [...visible].reverse().map((pt) => h('tr', {}, h('td', {}, dateTime(pt.t)), h('td', { class: 'num' }, money(pt.price)), h('td', {}, pt.store)))),
+        h('thead', {}, h('tr', {}, tableHead.map((c, i) => h('th', { scope: 'col', class: i === 0 || (!amazonMode && i === 2) ? '' : 'num' }, c)))),
+        h('tbody', {}, tableRows.map((row) => h('tr', {}, row.map((c, i) => h('td', { class: i === 0 || (!amazonMode && i === 2) ? '' : 'num' }, c))))),
       ),
     ),
   );
@@ -257,16 +303,20 @@ function renderDetail() {
         h('h2', {}, p.name),
         h('div', { class: 'muted' },
           `All-time low ${money(p.allTimeLow)} · high ${money(p.allTimeHigh)} · average store ${money(p.averageOffer)}`),
+        p.lastError ? h('div', { class: 'muted up' }, `⚠ ${p.lastError}`) : null,
       ),
       h('div', { class: 'detail-actions' }, targetInput, saveBtn, refreshBtn, removeBtn),
     ),
-    h('div', { class: 'ranges', role: 'group', 'aria-label': 'Time range' }, rangeButtons),
+    h('div', { class: 'controls' }, modeButtons, rangeButtons),
+    amazonSummary,
+    legend,
     chartBox,
     h('div', { class: 'offers' }, h('h3', {}, `Current offers (${p.offers.length})`), offerRows.length ? offerRows : h('p', { class: 'muted' }, 'No offers found yet.')),
     dataTable,
   );
 
-  drawChart(chartBox, visible, p.targetPrice);
+  const series = amazonMode ? amazonSeries : [{ name: 'Best price', color: 'var(--series-1)', points: visible }];
+  drawChart(chartBox, series, amazonMode ? null : p.targetPrice);
 }
 
 function niceTicks(lo, hi, count = 4) {
@@ -280,75 +330,109 @@ function niceTicks(lo, hi, count = 4) {
   return ticks;
 }
 
-function drawChart(box, points, target) {
-  if (points.length < 2) {
+function drawChart(box, series, target) {
+  const multi = series.length > 1;
+  const all = series.flatMap((s) => s.points);
+  if (!all.length || Math.max(...all.map((p) => p.t)) === Math.min(...all.map((p) => p.t))) {
     box.replaceChildren(h('p', { class: 'muted' }, 'Not enough history in this range yet. Prices are re-checked automatically.'));
     return;
   }
   const W = Math.max(box.clientWidth, 320), H = 280;
-  const m = { top: 14, right: 16, bottom: 28, left: 56 };
-  const prices = points.map((p) => p.price);
+  const m = { top: 14, right: multi ? (W < 520 ? 84 : 150) : 16, bottom: 28, left: 56 };
+  const prices = all.map((p) => p.price);
   let lo = Math.min(...prices), hi = Math.max(...prices);
   const showTarget = target != null && target >= lo * 0.6 && target <= hi * 1.4;
   if (showTarget) { lo = Math.min(lo, target); hi = Math.max(hi, target); }
   const ticks = niceTicks(lo, hi);
   const yMin = ticks[0], yMax = ticks.at(-1);
-  const t0 = points[0].t, t1 = points.at(-1).t;
+  const times = [...new Set(all.map((p) => p.t))].sort((a, b) => a - b);
+  const t0 = times[0], t1 = times.at(-1);
   const x = (t) => m.left + ((t - t0) / (t1 - t0 || 1)) * (W - m.left - m.right);
   const y = (v) => m.top + (1 - (v - yMin) / (yMax - yMin || 1)) * (H - m.top - m.bottom);
+  const text = (attrs, content) => Object.assign(svg('text', attrs), { textContent: content });
 
-  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Best price over time for the selected product, from ${money(Math.min(...prices))} to ${money(Math.max(...prices))}` });
+  const label = multi
+    ? `Price over time for ${series.map((s) => s.name).join(', ')}`
+    : `Best price over time for the selected product, from ${money(Math.min(...prices))} to ${money(Math.max(...prices))}`;
+  const root = svg('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': label });
 
   for (const v of ticks) {
     root.append(
       svg('line', { x1: m.left, x2: W - m.right, y1: y(v), y2: y(v), stroke: 'var(--grid)', 'stroke-width': 1 }),
-      Object.assign(svg('text', { x: m.left - 8, y: y(v) + 4, 'text-anchor': 'end' }), { textContent: money(v, 0) }),
+      text({ x: m.left - 8, y: y(v) + 4, 'text-anchor': 'end' }, money(v, 0)),
     );
   }
   const xTicks = W < 520 ? 2 : 4;
   for (let i = 0; i <= xTicks; i++) {
     const t = t0 + ((t1 - t0) * i) / xTicks;
-    root.append(Object.assign(svg('text', { x: x(t), y: H - 6, 'text-anchor': i === 0 ? 'start' : i === xTicks ? 'end' : 'middle' }), { textContent: dateShort(t) }));
+    root.append(text({ x: x(t), y: H - 6, 'text-anchor': i === 0 ? 'start' : i === xTicks ? 'end' : 'middle' }, dateShort(t)));
   }
 
   if (showTarget) {
     root.append(
       svg('line', { x1: m.left, x2: W - m.right, y1: y(target), y2: y(target), stroke: 'var(--text-muted)', 'stroke-width': 1.5, 'stroke-dasharray': '5 4' }),
-      Object.assign(svg('text', { x: W - m.right, y: y(target) - 6, 'text-anchor': 'end' }), { textContent: `Target ${money(target)}` }),
+      text({ x: W - m.right, y: y(target) - 6, 'text-anchor': 'end' }, `Target ${money(target)}`),
     );
   }
 
-  const d = points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.price).toFixed(1)}`).join('');
-  root.append(svg('path', { d, fill: 'none', stroke: 'var(--series-1)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  for (const s of series) {
+    const d = s.points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.price).toFixed(1)}`).join('');
+    root.append(svg('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+  }
 
-  // Direct label on the low point and the latest point (not every point).
-  const lowPt = points.reduce((a, b) => (b.price < a.price ? b : a));
-  const last = points.at(-1);
-  const mark = (pt, label, anchor) => {
-    root.append(
-      svg('circle', { cx: x(pt.t), cy: y(pt.price), r: 4.5, fill: 'var(--series-1)', stroke: 'var(--surface-1)', 'stroke-width': 2 }),
-      Object.assign(svg('text', { x: x(pt.t), y: y(pt.price) + 20, 'text-anchor': anchor, style: 'font-weight:600' }), { textContent: label }),
-    );
-  };
-  mark(lowPt, `Low ${money(lowPt.price)}`, x(lowPt.t) < m.left + 50 ? 'start' : x(lowPt.t) > W - m.right - 50 ? 'end' : 'middle');
-  if (last !== lowPt) mark(last, `Now ${money(last.price)}`, 'end');
+  const dotAt = (pt, color) =>
+    svg('circle', { cx: x(pt.t), cy: y(pt.price), r: 4.5, fill: color, stroke: 'var(--surface-1)', 'stroke-width': 2 });
+
+  if (multi) {
+    // Direct labels at each line's end, nudged apart so close prices don't overlap.
+    const ends = series.map((s) => ({ s, pt: s.points.at(-1) })).sort((a, b) => y(a.pt.price) - y(b.pt.price));
+    let prevY = -Infinity;
+    for (const { s, pt } of ends) {
+      const ly = Math.max(y(pt.price) + 4, prevY + 15);
+      prevY = ly;
+      root.append(dotAt(pt, s.color), text({ x: x(pt.t) + 10, y: ly, style: 'font-weight:600' }, `${W < 520 ? s.name.replace('Amazon', '') : s.name} ${money(pt.price, 0)}`));
+    }
+  } else {
+    // Direct label on the low point and the latest point (not every point).
+    const pts = series[0].points;
+    const lowPt = pts.reduce((a, b) => (b.price < a.price ? b : a));
+    const last = pts.at(-1);
+    const mark = (pt, content, anchor) =>
+      root.append(dotAt(pt, series[0].color), text({ x: x(pt.t), y: y(pt.price) + 20, 'text-anchor': anchor, style: 'font-weight:600' }, content));
+    mark(lowPt, `Low ${money(lowPt.price)}`, x(lowPt.t) < m.left + 50 ? 'start' : x(lowPt.t) > W - m.right - 50 ? 'end' : 'middle');
+    if (last !== lowPt) mark(last, `Now ${money(last.price)}`, 'end');
+  }
 
   // Hover layer: crosshair + tooltip following the nearest snapshot.
   const cross = svg('line', { y1: m.top, y2: H - m.bottom, stroke: 'var(--text-muted)', 'stroke-width': 1, visibility: 'hidden' });
-  const dot = svg('circle', { r: 5.5, fill: 'var(--series-1)', stroke: 'var(--surface-1)', 'stroke-width': 2, visibility: 'hidden' });
+  const dots = series.map((s) => svg('circle', { r: 5.5, fill: s.color, stroke: 'var(--surface-1)', 'stroke-width': 2, visibility: 'hidden' }));
   const hit = svg('rect', { x: m.left, y: m.top, width: W - m.left - m.right, height: H - m.top - m.bottom, fill: 'transparent' });
-  root.append(cross, dot, hit);
+  root.append(cross, ...dots, hit);
 
   const tip = $('#tooltip');
   const show = (clientX, clientY) => {
     const rect = root.getBoundingClientRect();
     const px = ((clientX - rect.left) / rect.width) * W;
-    let nearest = points[0];
-    for (const p of points) if (Math.abs(x(p.t) - px) < Math.abs(x(nearest.t) - px)) nearest = p;
-    cross.setAttribute('x1', x(nearest.t)); cross.setAttribute('x2', x(nearest.t));
-    dot.setAttribute('cx', x(nearest.t)); dot.setAttribute('cy', y(nearest.price));
-    cross.setAttribute('visibility', 'visible'); dot.setAttribute('visibility', 'visible');
-    tip.replaceChildren(h('div', { class: 'muted' }, dateTime(nearest.t)), h('div', {}, h('b', {}, money(nearest.price)), ` at ${nearest.store}`));
+    const t = times.reduce((a, b) => (Math.abs(x(b) - px) < Math.abs(x(a) - px) ? b : a));
+    cross.setAttribute('x1', x(t)); cross.setAttribute('x2', x(t));
+    cross.setAttribute('visibility', 'visible');
+
+    const rows = [];
+    series.forEach((s, i) => {
+      const pt = s.points.find((p) => p.t === t);
+      dots[i].setAttribute('visibility', pt ? 'visible' : 'hidden');
+      if (!pt) return;
+      dots[i].setAttribute('cx', x(t)); dots[i].setAttribute('cy', y(pt.price));
+      rows.push({ s, pt });
+    });
+    rows.sort((a, b) => a.pt.price - b.pt.price);
+
+    tip.replaceChildren(
+      h('div', { class: 'muted' }, dateTime(t)),
+      ...(multi
+        ? rows.map(({ s, pt }) => h('div', {}, h('i', { class: 'swatch', style: `background:${s.color}` }), `${s.name} `, h('b', {}, money(pt.price))))
+        : [h('div', {}, h('b', {}, money(rows[0].pt.price)), ` at ${rows[0].pt.store}`)]),
+    );
     tip.hidden = false;
     const tw = tip.offsetWidth;
     tip.style.left = `${Math.min(clientX + 14, window.innerWidth - tw - 8)}px`;
@@ -356,7 +440,8 @@ function drawChart(box, points, target) {
   };
   const hide = () => {
     tip.hidden = true;
-    cross.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden');
+    cross.setAttribute('visibility', 'hidden');
+    dots.forEach((d) => d.setAttribute('visibility', 'hidden'));
   };
   hit.addEventListener('pointermove', (e) => show(e.clientX, e.clientY));
   hit.addEventListener('pointerleave', hide);

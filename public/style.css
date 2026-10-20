@@ -8,6 +8,8 @@
   --text-secondary: #52514e;
   --text-muted: #6f6e69;
   --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
   --good: #008300;
   --bad: #c2410c;
   --focus: #2a78d6;
@@ -24,6 +26,8 @@
     --text-secondary: #c3c2b7;
     --text-muted: #9d9c93;
     --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
     --good: #3ea63e;
     --bad: #f0813f;
     --focus: #6da7ec;
@@ -150,7 +154,8 @@ svg.spark { display: block; width: 96px; height: 28px; }
 .detail-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .detail-actions input { width: 120px; }
-.ranges { display: inline-flex; gap: 4px; margin: 14px 0 6px; }
+.controls { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 14px 0 6px; }
+.ranges { display: inline-flex; gap: 4px; }
 .ranges button { padding: 4px 12px; font-size: 13px; }
 .ranges button[aria-pressed="true"] { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
 
@@ -198,3 +203,9 @@ details .scroll { max-height: 240px; overflow: auto; }
 @media (prefers-reduced-motion: no-preference) {
   button, tbody tr { transition: background-color 0.12s, border-color 0.12s; }
 }
+
+.summary { margin: 8px 0 0; font-size: 14px; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-secondary); }
+.legend i, .tooltip .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+.clip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.offer > span:first-child { min-width: 0; }

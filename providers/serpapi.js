@@ -1,7 +1,7 @@
 // Live prices from Google Shopping via SerpAPI (https://serpapi.com).
 // Requires SERPAPI_KEY. Optional: SERPAPI_GL (country code, default "us").
 
-const safeUrl = (u) => {
+export const safeUrl = (u) => {
   try {
     const url = new URL(u);
     return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;

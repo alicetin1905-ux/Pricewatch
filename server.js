@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Db, MAX_SNAPSHOTS } from './lib/db.js';
-import { filterOutliers, historySeries, summarize } from './lib/offers.js';
+import { filterOutliers, historySeries, storeSeries, summarize } from './lib/offers.js';
 import { pickProvider } from './providers/index.js';
 
 const ROOT = fileURLToPath(new URL('.', import.meta.url));
@@ -49,12 +49,14 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
     if (inFlight.has(product.id)) return;
     inFlight.add(product.id);
     try {
-      const offers = filterOutliers(await provider.fetchOffers(product.name));
+      const raw = await provider.fetchOffers(product.name);
+      const warnings = raw.warnings ?? [];
+      const offers = filterOutliers(raw);
       product.history.push({ t: Date.now(), offers });
       if (product.history.length > MAX_SNAPSHOTS) {
         product.history.splice(0, product.history.length - MAX_SNAPSHOTS);
       }
-      product.lastError = offers.length ? null : 'No offers found for this search';
+      product.lastError = warnings.length ? warnings.join('; ') : offers.length ? null : 'No offers found for this search';
     } catch (err) {
       product.lastError = err.message;
     } finally {
@@ -103,12 +105,14 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
       return summarize(product);
     }
 
-    const match = path.match(/^\/api\/products\/([\w-]+)(\/history|\/refresh)?$/);
+    const match = path.match(/^\/api\/products\/([\w-]+)(\/history|\/refresh|\/amazon)?$/);
     if (match) {
       const [, id, sub] = match;
       const product = need(id);
 
       if (method === 'GET' && sub === '/history') return historySeries(product);
+
+      if (method === 'GET' && sub === '/amazon') return storeSeries(product, (s) => /^amazon\./i.test(s));
 
       if (method === 'POST' && sub === '/refresh') {
         await refresh(product);
@@ -193,13 +197,13 @@ if (isMain) {
   const port = Number(process.env.PORT ?? 3000);
   // Bound to localhost: the API has no authentication.
   const host = process.env.HOST ?? '127.0.0.1';
-  const defaultMinutes = provider.demo ? 60 : 720;
+  const defaultMinutes = provider.demo ? 60 : 1440;
   const minutes = Number(process.env.REFRESH_MINUTES ?? defaultMinutes);
 
   const { server, refreshAll } = await createApp({
     dataFile: process.env.DATA_FILE ?? join(ROOT, 'data', 'db.json'),
     provider,
-    currency: process.env.CURRENCY ?? 'USD',
+    currency: process.env.CURRENCY ?? 'EUR',
   });
 
   server.listen(port, host, () => {

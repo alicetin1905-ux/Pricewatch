@@ -41,6 +41,7 @@ export function serpApiProvider({ apiKey, gl = 'us', fetchImpl = fetch }) {
   return {
     name: 'serpapi',
     demo: false,
+    cost: 1,
 
     async fetchOffers(query) {
       return parseShoppingResults(await searchGoogleShopping({ apiKey, query, gl, fetchImpl }));

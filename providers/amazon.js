@@ -33,6 +33,7 @@ export function amazonProvider({ apiKey, domains = DEFAULT_AMAZON_DOMAINS, fetch
   return {
     name: 'amazon',
     demo: false,
+    cost: domains.length,
 
     async fetchOffers(query) {
       const results = await Promise.allSettled(

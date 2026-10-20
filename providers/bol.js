@@ -25,6 +25,7 @@ export function bolProvider({ apiKey, gl = 'nl', fetchImpl = fetch }) {
   return {
     name: 'bol.com',
     demo: false,
+    cost: 1,
 
     async fetchOffers(query) {
       const json = await searchGoogleShopping({ apiKey, query: `${query} bol.com`, gl, hl: 'nl', fetchImpl });

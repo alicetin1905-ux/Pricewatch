@@ -175,6 +175,15 @@ function renderHeader() {
       'Demo mode: these prices are simulated. Set SERPAPI_KEY and restart to track real Google Shopping prices (see README).';
   }
   $('#sub').textContent = `Best online price for the things you're watching · source: ${name}`;
+
+  const usage = $('#usage');
+  const u = state.usage;
+  usage.hidden = !u;
+  if (u) {
+    const low = u.remaining < u.cost;
+    usage.textContent = `${low ? '⚠ ' : ''}Searches this period: ${u.used} of ${u.limit} used · resets ${new Date(u.resetsAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    usage.classList.toggle('up', low);
+  }
 }
 
 // ---------- detail panel + chart ----------
@@ -231,7 +240,7 @@ function renderDetail() {
     await api('PATCH', `/api/products/${p.id}`, { targetPrice: targetInput.value === '' ? null : targetInput.value });
     await reload();
   });
-  const refreshBtn = h('button', { type: 'button' }, 'Check now');
+  const refreshBtn = h('button', { type: 'button', title: state.usage ? `Uses ${state.usage.cost} searches` : null }, 'Check now');
   refreshBtn.onclick = () => guarded(refreshBtn, async () => {
     await api('POST', `/api/products/${p.id}/refresh`);
     await reload();
@@ -486,6 +495,11 @@ $('#add').addEventListener('submit', (e) => {
 });
 
 $('#refresh-all').addEventListener('click', (e) => guarded(e.currentTarget, async () => {
+  const u = state.usage;
+  if (u && state.products.length) {
+    const cost = u.cost * state.products.length;
+    if (!confirm(`Checking every product now uses about ${cost} of your ${u.remaining} remaining searches. Continue?`)) return;
+  }
   state = await api('POST', '/api/refresh');
   await loadHistory();
   render();

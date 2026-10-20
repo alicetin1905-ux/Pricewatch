@@ -4,6 +4,7 @@ export function combineProviders(providers, name) {
   return {
     name,
     demo: false,
+    cost: providers.reduce((sum, p) => sum + (p.cost ?? 0), 0),
 
     async fetchOffers(query) {
       const results = await Promise.allSettled(providers.map((p) => p.fetchOffers(query)));

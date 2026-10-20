@@ -1,9 +1,10 @@
 import { createServer } from 'node:http';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
-import { extname, join, normalize, resolve, sep } from 'node:path';
+import { dirname, extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Db, MAX_SNAPSHOTS } from './lib/db.js';
+import { autoRefreshMs, Meter } from './lib/meter.js';
 import { filterOutliers, historySeries, storeSeries, summarize } from './lib/offers.js';
 import { pickProvider } from './providers/index.js';
 
@@ -53,7 +54,7 @@ function isAuthorized(req, passwordDigest) {
   return colon >= 0 && timingSafeEqual(digest(decoded.slice(colon + 1)), passwordDigest);
 }
 
-export async function createApp({ dataFile, provider, currency = 'USD', password = '' }) {
+export async function createApp({ dataFile, provider, currency = 'USD', password = '', meter = null }) {
   const passwordDigest = password ? digest(password) : null;
   const db = await new Db(dataFile).load();
   const inFlight = new Set();
@@ -62,6 +63,12 @@ export async function createApp({ dataFile, provider, currency = 'USD', password
     if (inFlight.has(product.id)) return;
     inFlight.add(product.id);
     product.lastAttempt = Date.now();
+    // A refresh that can't finish would leave a snapshot with stores missing, so it's all or nothing.
+    if (meter && !meter.canAfford(provider.cost ?? 0)) {
+      product.lastError = meter.exhaustedMessage();
+      inFlight.delete(product.id);
+      return;
+    }
     try {
       const raw = await provider.fetchOffers(product.name);
       const warnings = raw.warnings ?? [];
@@ -95,6 +102,7 @@ export async function createApp({ dataFile, provider, currency = 'USD', password
   const state = () => ({
     provider: { name: provider.name, demo: provider.demo },
     currency,
+    usage: meter ? { ...meter.snapshot(), cost: provider.cost ?? 0 } : null,
     products: db.products.map((p) => summarize(p)),
   });
 
@@ -228,7 +236,6 @@ if (isMain) {
     if (err.code !== 'ENOENT') throw err;
   }
 
-  const provider = pickProvider();
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.HOST ?? '127.0.0.1';
   const password = process.env.AUTH_PASSWORD ?? '';
@@ -236,21 +243,43 @@ if (isMain) {
   if (!loopback && !password) {
     throw new Error(`HOST=${host} exposes Pricewatch to the network; set AUTH_PASSWORD first`);
   }
-  const defaultMinutes = provider.demo ? 60 : 1440;
-  const minutes = Number(process.env.REFRESH_MINUTES ?? defaultMinutes);
 
-  const { server, refreshStale } = await createApp({
-    dataFile: process.env.DATA_FILE ?? join(ROOT, 'data', 'db.json'),
+  const dataFile = process.env.DATA_FILE ?? join(ROOT, 'data', 'db.json');
+  const limit = Number(process.env.SERPAPI_MONTHLY_LIMIT ?? 250);
+  const resetDay = Number(process.env.SERPAPI_RESET_DAY ?? 1);
+  if (!Number.isInteger(limit) || limit < 0) throw new Error('SERPAPI_MONTHLY_LIMIT must be a whole number (0 = unlimited)');
+  if (!Number.isInteger(resetDay) || resetDay < 1 || resetDay > 28) throw new Error('SERPAPI_RESET_DAY must be 1-28');
+
+  const searchMeter = limit > 0 ? await new Meter({ file: join(dirname(dataFile), 'usage.json'), limit, resetDay }).load() : null;
+  const provider = pickProvider(process.env, { meter: searchMeter });
+  const meter = provider.demo ? null : searchMeter;
+
+  const { server, refreshStale, db } = await createApp({
+    dataFile,
     provider,
     currency: process.env.CURRENCY ?? 'EUR',
     password,
+    meter,
   });
 
+  // REFRESH_MINUTES pins the interval; otherwise live sources are paced to fit the search budget.
+  const fixedMinutes = process.env.REFRESH_MINUTES;
+  const refreshMs = () => {
+    if (fixedMinutes != null) return Number(fixedMinutes) * 60_000;
+    if (provider.demo || !meter) return (provider.demo ? 60 : 1440) * 60_000;
+    return autoRefreshMs({ products: db.products.length, costPerRefresh: provider.cost, limit: meter.limit });
+  };
+
   server.listen(port, host, () => {
-    console.log(`Pricewatch on http://${host}:${port} (provider: ${provider.name}, refresh every ${minutes} min${password ? ', password required' : ''})`);
+    const every = fixedMinutes != null ? `every ${fixedMinutes} min` : meter ? 'paced to the search budget' : 'hourly';
+    const budget = meter ? `, ${meter.limit} searches/month` : '';
+    console.log(`Pricewatch on http://${host}:${port} (provider: ${provider.name}, refresh ${every}${budget}${password ? ', password required' : ''})`);
   });
-  if (minutes > 0) {
-    const tick = () => refreshStale(minutes * 60_000).catch(console.error);
+  if (refreshMs() > 0) {
+    const tick = () => {
+      const ms = refreshMs();
+      if (ms > 0 && Number.isFinite(ms)) refreshStale(ms).catch(console.error);
+    };
     tick();
     setInterval(tick, 5 * 60_000).unref();
   }

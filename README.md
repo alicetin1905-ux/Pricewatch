@@ -81,11 +81,30 @@ be more reliable but needs a bol affiliate account; a provider for it would slot
 ### Search budget
 
 Every refresh costs one search per source per product: Google Shopping, one per Amazon
-domain and one for bol.com, so 5 by default. SerpAPI's free tier is small (about 100
-searches a month), so live prices refresh once a day by default, which is less than one
-product's worth on the free tier. Turn sources off with `GOOGLE_SHOPPING=0`, `BOL=0` or
-`AMAZON_DOMAINS=` (empty), or raise `REFRESH_MINUTES` on a paid plan. If one source fails,
-the others still update and the product shows a warning.
+domain and one for bol.com, so 5 by default. The app is built around SerpAPI's free plan
+(250 searches a month, set with `SERPAPI_MONTHLY_LIMIT`; `0` turns the limit off):
+
+- It counts every search, saves the count in `data/usage.json` (so restarts don't reset it)
+  and shows it under the title. Match `SERPAPI_RESET_DAY` (1-28) to the day your SerpAPI
+  plan renews. SerpAPI's dashboard is the source of truth if the two ever differ.
+- Unless you set `REFRESH_MINUTES`, products are refreshed as often as the budget allows,
+  keeping 15% back for manual "Check now" clicks (never more often than every 6 hours).
+- A refresh the remaining budget can't fully cover is skipped, so you never get a snapshot
+  with stores missing. The product shows when checks resume.
+- "Refresh all" asks before spending.
+
+Roughly how often each product is checked with 250 searches a month:
+
+| Products | 5 searches (default) | 4 searches (`GOOGLE_SHOPPING=0`) |
+|---|---|---|
+| 1 | every 17 h | every 14 h |
+| 2 | every 34 h | every 28 h |
+| 3 | every 51 h | every 42 h |
+| 5 | every 3.75 days | every 3 days |
+
+Fewer sources stretch it further: turn them off with `GOOGLE_SHOPPING=0`, `BOL=0` or
+`AMAZON_DOMAINS=` (empty). If one source fails, the others still update and the product
+shows a warning.
 
 Shopping searches can return accessories (a case for the phone you searched for).
 Offers priced below 40% of the median are dropped when there are 3 or more offers.
@@ -104,7 +123,9 @@ Set these in the environment or in a `.env` file (see `.env.example`).
 | `PORT` | `3000` | |
 | `HOST` | `127.0.0.1` | Anything other than localhost requires `AUTH_PASSWORD`. |
 | `AUTH_PASSWORD` | none | Asks for this password (any username) on every request. |
-| `REFRESH_MINUTES` | `60` demo / `1440` live | `0` disables background refresh |
+| `REFRESH_MINUTES` | `60` demo / paced to the budget live | Pin the interval; `0` disables background refresh |
+| `SERPAPI_MONTHLY_LIMIT` | `250` | Searches your SerpAPI plan allows per period; `0` = no limit |
+| `SERPAPI_RESET_DAY` | `1` | Day of the month (1-28) your SerpAPI plan renews |
 | `CURRENCY` | `EUR` | Display currency (ISO code). All sources should return the same currency. |
 | `SERPAPI_GL` | `be` | Country for Google Shopping results |
 | `AMAZON_DOMAINS` | `amazon.com.be,amazon.nl,amazon.de` | Amazon marketplaces to compare |

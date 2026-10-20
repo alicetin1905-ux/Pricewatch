@@ -236,7 +236,7 @@ if (isMain) {
     if (err.code !== 'ENOENT') throw err;
   }
 
-  const port = Number(process.env.PORT ?? 3000);
+  const port = Number(process.env.PORT ?? 3737);
   const host = process.env.HOST ?? '127.0.0.1';
   const password = process.env.AUTH_PASSWORD ?? '';
   const loopback = ['127.0.0.1', '::1', 'localhost'].includes(host);
@@ -270,6 +270,11 @@ if (isMain) {
     return autoRefreshMs({ products: db.products.length, costPerRefresh: provider.cost, limit: meter.limit });
   };
 
+  server.on('error', (err) => {
+    if (err.code !== 'EADDRINUSE') throw err;
+    console.error(`Port ${port} is already in use by another program. Set PORT=<free port> in .env and restart.`);
+    process.exit(1);
+  });
   server.listen(port, host, () => {
     const every = fixedMinutes != null ? `every ${fixedMinutes} min` : meter ? 'paced to the search budget' : 'hourly';
     const budget = meter ? `, ${meter.limit} searches/month` : '';

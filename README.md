@@ -8,7 +8,7 @@ change since the last check, and a price chart.
 No dependencies; needs Node 20.12+.
 
 ```sh
-npm start          # http://127.0.0.1:3000
+npm start          # http://127.0.0.1:3737
 npm test
 ```
 
@@ -24,7 +24,7 @@ git checkout claude/pricewatch-dashboard   # until this branch is merged into ma
 ./scripts/install-mac.sh
 ```
 
-Open http://127.0.0.1:3000. The installer creates a `.env` file; put your `SERPAPI_KEY` in
+Open http://127.0.0.1:3737. The installer creates a `.env` file; put your `SERPAPI_KEY` in
 it for real prices (demo prices until then) and apply it with
 `launchctl kickstart -k gui/$(id -u)/com.pricewatch`.
 
@@ -41,9 +41,9 @@ is off*.
 **Opening it from your phone or another computer.** By default it only listens on the Mac
 itself. To reach it from other devices, put `HOST=0.0.0.0` and `AUTH_PASSWORD=...` in `.env`
 (it refuses to start on the network without a password), then browse to
-`http://<mac-name>.local:3000`. The password is sent unencrypted over plain HTTP, so that's
+`http://<mac-name>.local:3737`. The password is sent unencrypted over plain HTTP, so that's
 fine at home but not over the internet. For access from anywhere, keep `HOST` as it is and
-use [Tailscale](https://tailscale.com) (`tailscale serve 3000` gives you HTTPS inside your
+use [Tailscale](https://tailscale.com) (`tailscale serve 3737` gives you HTTPS inside your
 own private network) instead of opening a port on your router.
 
 ## Price sources
@@ -120,7 +120,7 @@ Set these in the environment or in a `.env` file (see `.env.example`).
 
 | Env var | Default | |
 |---|---|---|
-| `PORT` | `3000` | |
+| `PORT` | `3737` | If another program already uses it, the installer stops and tells you. |
 | `HOST` | `127.0.0.1` | Anything other than localhost requires `AUTH_PASSWORD`. |
 | `AUTH_PASSWORD` | none | Asks for this password (any username) on every request. |
 | `REFRESH_MINUTES` | `60` demo / paced to the budget live | Pin the interval; `0` disables background refresh |

@@ -65,9 +65,19 @@ plist > "$PLIST"
 
 DOMAIN="gui/$(id -u)"
 launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+
+# Port comes from .env (PORT=...), default 3737. Stop here if another program has it.
+PORT=$(sed -n 's/^PORT=\([0-9][0-9]*\).*/\1/p' "$ROOT/.env" | tail -1)
+PORT=${PORT:-3737}
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "Port $PORT is already used by another program (see: lsof -nP -iTCP:$PORT -sTCP:LISTEN)." >&2
+  echo "Put a free port in $ROOT/.env, e.g. PORT=3838, then run this script again." >&2
+  exit 1
+fi
+
 launchctl bootstrap "$DOMAIN" "$PLIST"
 launchctl kickstart -k "$DOMAIN/$LABEL"
 
-echo "Pricewatch is running: http://127.0.0.1:3000"
+echo "Pricewatch is running: http://127.0.0.1:$PORT"
 echo "Logs: $LOGS/pricewatch.log"
 echo "After editing .env, apply it with: launchctl kickstart -k $DOMAIN/$LABEL"

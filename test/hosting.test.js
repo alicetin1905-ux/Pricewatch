@@ -76,3 +76,22 @@ test('refuses to listen on the network without a password', () => {
   const started = run({ HOST: '127.0.0.1', AUTH_PASSWORD: 'x' });
   assert.doesNotMatch(started.stderr, /AUTH_PASSWORD/);
 });
+
+test('says so plainly when the port is already taken', async () => {
+  const { createServer } = await import('node:net');
+  const blocker = createServer();
+  await new Promise((r) => blocker.listen(0, '127.0.0.1', r));
+  try {
+    const { spawn } = await import('node:child_process');
+    const child = spawn(process.execPath, ['server.js'], {
+      env: { PATH: process.env.PATH, PORT: String(blocker.address().port), DATA_FILE: join(tmpdir(), 'pw-busy.json') },
+    });
+    let stderr = '';
+    child.stderr.on('data', (d) => (stderr += d));
+    const code = await new Promise((r) => child.on('exit', r));
+    assert.equal(code, 1);
+    assert.match(stderr, /already in use by another program/);
+  } finally {
+    blocker.close();
+  }
+});

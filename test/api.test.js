@@ -35,9 +35,9 @@ test('create, list, update, refresh and delete a product', async () => {
     assert.equal((await call('GET', '/api/state')).json.products.length, 1);
     assert.ok((await call('GET', `/api/products/${id}/history`)).json.length > 50);
 
-    const amazon = (await call('GET', `/api/products/${id}/amazon`)).json;
-    assert.deepEqual(amazon.map((s) => s.store), ['Amazon.com.be', 'Amazon.nl', 'Amazon.de']);
-    assert.ok(amazon.every((s) => s.points.length > 50));
+    const compare = (await call('GET', `/api/products/${id}/compare`)).json;
+    assert.deepEqual(compare.map((s) => s.store), ['Amazon.com.be', 'Amazon.nl', 'Amazon.de', 'bol.com']);
+    assert.ok(compare.every((s) => s.points.length > 50));
 
     assert.equal((await call('PATCH', `/api/products/${id}`, { targetPrice: null })).json.targetPrice, null);
     assert.equal((await call('POST', `/api/products/${id}/refresh`)).status, 200);

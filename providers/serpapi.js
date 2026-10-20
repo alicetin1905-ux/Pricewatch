@@ -28,24 +28,22 @@ export function parseShoppingResults(json) {
   return [...byStore.values()];
 }
 
+export async function searchGoogleShopping({ apiKey, query, gl, hl = 'en', fetchImpl = fetch }) {
+  const params = new URLSearchParams({ engine: 'google_shopping', q: query, gl, hl, api_key: apiKey });
+  const res = await fetchImpl(`https://serpapi.com/search.json?${params}`);
+  if (!res.ok) throw new Error(`SerpAPI responded ${res.status}`);
+  const json = await res.json();
+  if (json.error) throw new Error(`SerpAPI: ${json.error}`);
+  return json;
+}
+
 export function serpApiProvider({ apiKey, gl = 'us', fetchImpl = fetch }) {
   return {
     name: 'serpapi',
     demo: false,
 
     async fetchOffers(query) {
-      const params = new URLSearchParams({
-        engine: 'google_shopping',
-        q: query,
-        gl,
-        hl: 'en',
-        api_key: apiKey,
-      });
-      const res = await fetchImpl(`https://serpapi.com/search.json?${params}`);
-      if (!res.ok) throw new Error(`SerpAPI responded ${res.status}`);
-      const json = await res.json();
-      if (json.error) throw new Error(`SerpAPI: ${json.error}`);
-      return parseShoppingResults(json);
+      return parseShoppingResults(await searchGoogleShopping({ apiKey, query, gl, fetchImpl }));
     },
   };
 }

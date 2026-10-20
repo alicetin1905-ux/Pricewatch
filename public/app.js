@@ -6,13 +6,20 @@ const DAY = 86_400_000;
 let state = { provider: { name: '', demo: false }, currency: 'USD', products: [] };
 let selectedId = null;
 let range = 30; // days; 0 = all
-let historyCache = { id: null, points: [], amazon: [] };
-let chartMode = 'best'; // 'best' | 'amazon'
+let historyCache = { id: null, points: [], compare: [] };
+let chartMode = 'best'; // 'best' | 'compare'
 
-const STORE_COLORS = { 'Amazon.com.be': 'var(--series-1)', 'Amazon.nl': 'var(--series-2)', 'Amazon.de': 'var(--series-3)' };
+// Three categorical hues are all a line chart can keep distinguishable, so bol.com
+// is drawn dashed in a neutral ink instead of a fourth hue.
+const STORE_STYLES = {
+  'Amazon.com.be': { color: 'var(--series-1)' },
+  'Amazon.nl': { color: 'var(--series-2)' },
+  'Amazon.de': { color: 'var(--series-3)' },
+  'bol.com': { color: 'var(--text-secondary)', dash: '6 4' },
+};
 const FALLBACK_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'];
-const storeColor = (store, i) => STORE_COLORS[store] ?? FALLBACK_COLORS[i % FALLBACK_COLORS.length];
-const isAmazon = (store) => /^amazon\./i.test(store);
+const storeStyle = (store, i) => STORE_STYLES[store] ?? { color: FALLBACK_COLORS[i % FALLBACK_COLORS.length] };
+const isCompared = (store) => /^amazon\.|^bol\.com$/i.test(store);
 
 // ---------- helpers ----------
 
@@ -184,11 +191,11 @@ async function loadHistory() {
   if (!selectedId) return;
   const id = selectedId;
   try {
-    const [points, amazon] = await Promise.all([
+    const [points, compare] = await Promise.all([
       api('GET', `/api/products/${id}/history`),
-      api('GET', `/api/products/${id}/amazon`),
+      api('GET', `/api/products/${id}/compare`),
     ]);
-    historyCache = { id, points, amazon };
+    historyCache = { id, points, compare };
   } catch (err) {
     showError(err);
   }
@@ -203,16 +210,16 @@ function renderDetail() {
   }
   panel.hidden = false;
 
-  const cache = historyCache.id === p.id ? historyCache : { points: [], amazon: [] };
+  const cache = historyCache.id === p.id ? historyCache : { points: [], compare: [] };
   const cutoff = range ? Date.now() - range * DAY : 0;
   const inRange = (pt) => pt.t >= cutoff;
   const visible = cache.points.filter(inRange);
-  const amazonSeries = cache.amazon
-    .map((s, i) => ({ name: s.store, color: storeColor(s.store, i), points: s.points.filter(inRange) }))
+  const compareSeries = cache.compare
+    .map((s, i) => ({ name: s.store, ...storeStyle(s.store, i), points: s.points.filter(inRange) }))
     .filter((s) => s.points.length);
-  const hasAmazon = cache.amazon.length > 1;
-  if (!hasAmazon) chartMode = 'best';
-  const amazonMode = chartMode === 'amazon';
+  const hasCompare = cache.compare.length > 1;
+  if (!hasCompare) chartMode = 'best';
+  const compareMode = chartMode === 'compare';
   const chartBox = h('div', { class: 'chart' });
 
   const targetInput = h('input', {
@@ -239,27 +246,27 @@ function renderDetail() {
 
   const toggle = (value, label, current, set) =>
     h('button', { type: 'button', 'aria-pressed': String(current === value), onclick: () => { set(value); renderDetail(); } }, label);
-  const modeButtons = hasAmazon
+  const modeButtons = hasCompare
     ? h('div', { class: 'ranges', role: 'group', 'aria-label': 'Chart' },
         toggle('best', 'Best price', chartMode, (v) => (chartMode = v)),
-        toggle('amazon', 'Amazon marketplaces', chartMode, (v) => (chartMode = v)))
+        toggle('compare', 'Amazon & bol.com', chartMode, (v) => (chartMode = v)))
     : null;
   const rangeButtons = h('div', { class: 'ranges', role: 'group', 'aria-label': 'Time range' },
     [[7, '7 days'], [30, '30 days'], [0, 'All']].map(([d, label]) => toggle(d, label, range, (v) => (range = v))));
 
-  // Which Amazon marketplace is cheapest right now, and by how much.
-  const amazonNow = p.offers.filter((o) => isAmazon(o.store));
-  let amazonSummary = null;
-  if (amazonMode && amazonNow.length > 1) {
-    const [cheapest, ...rest] = amazonNow;
+  // Which compared store is cheapest right now, and by how much.
+  const compareNow = p.offers.filter((o) => isCompared(o.store));
+  let compareSummary = null;
+  if (compareMode && compareNow.length > 1) {
+    const [cheapest, ...rest] = compareNow;
     const dearest = rest.at(-1);
-    amazonSummary = h('p', { class: 'summary' },
+    compareSummary = h('p', { class: 'summary' },
       h('b', {}, cheapest.store), ` is cheapest right now at ${money(cheapest.price)}, `,
       `${money(dearest.price - cheapest.price)} (${Math.round(((dearest.price - cheapest.price) / dearest.price) * 100)}%) less than ${dearest.store}.`);
   }
 
-  const legend = amazonMode
-    ? h('ul', { class: 'legend' }, amazonSeries.map((s) => h('li', {}, h('i', { style: `background:${s.color}` }), s.name)))
+  const legend = compareMode
+    ? h('ul', { class: 'legend' }, compareSeries.map((s) => h('li', {}, h('i', { class: s.dash ? 'dashed' : null, style: `--c:${s.color}` }), s.name)))
     : null;
 
   const maxOffer = Math.max(...p.offers.map((o) => o.price), 1);
@@ -277,10 +284,10 @@ function renderDetail() {
   });
 
   let tableHead, tableRows;
-  if (amazonMode) {
-    const times = [...new Set(amazonSeries.flatMap((s) => s.points.map((pt) => pt.t)))].sort((a, b) => b - a);
-    tableHead = ['Checked', ...amazonSeries.map((s) => s.name)];
-    tableRows = times.map((t) => [dateTime(t), ...amazonSeries.map((s) => money(s.points.find((pt) => pt.t === t)?.price))]);
+  if (compareMode) {
+    const times = [...new Set(compareSeries.flatMap((s) => s.points.map((pt) => pt.t)))].sort((a, b) => b - a);
+    tableHead = ['Checked', ...compareSeries.map((s) => s.name)];
+    tableRows = times.map((t) => [dateTime(t), ...compareSeries.map((s) => money(s.points.find((pt) => pt.t === t)?.price))]);
   } else {
     tableHead = ['Checked', 'Best price', 'Store'];
     tableRows = [...visible].reverse().map((pt) => [dateTime(pt.t), money(pt.price), pt.store]);
@@ -291,8 +298,8 @@ function renderDetail() {
     h('summary', {}, 'View data as a table'),
     h('div', { class: 'scroll' },
       h('table', {},
-        h('thead', {}, h('tr', {}, tableHead.map((c, i) => h('th', { scope: 'col', class: i === 0 || (!amazonMode && i === 2) ? '' : 'num' }, c)))),
-        h('tbody', {}, tableRows.map((row) => h('tr', {}, row.map((c, i) => h('td', { class: i === 0 || (!amazonMode && i === 2) ? '' : 'num' }, c))))),
+        h('thead', {}, h('tr', {}, tableHead.map((c, i) => h('th', { scope: 'col', class: i === 0 || (!compareMode && i === 2) ? '' : 'num' }, c)))),
+        h('tbody', {}, tableRows.map((row) => h('tr', {}, row.map((c, i) => h('td', { class: i === 0 || (!compareMode && i === 2) ? '' : 'num' }, c))))),
       ),
     ),
   );
@@ -308,15 +315,15 @@ function renderDetail() {
       h('div', { class: 'detail-actions' }, targetInput, saveBtn, refreshBtn, removeBtn),
     ),
     h('div', { class: 'controls' }, modeButtons, rangeButtons),
-    amazonSummary,
+    compareSummary,
     legend,
     chartBox,
     h('div', { class: 'offers' }, h('h3', {}, `Current offers (${p.offers.length})`), offerRows.length ? offerRows : h('p', { class: 'muted' }, 'No offers found yet.')),
     dataTable,
   );
 
-  const series = amazonMode ? amazonSeries : [{ name: 'Best price', color: 'var(--series-1)', points: visible }];
-  drawChart(chartBox, series, amazonMode ? null : p.targetPrice);
+  const series = compareMode ? compareSeries : [{ name: 'Best price', color: 'var(--series-1)', points: visible }];
+  drawChart(chartBox, series, compareMode ? null : p.targetPrice);
 }
 
 function niceTicks(lo, hi, count = 4) {
@@ -377,7 +384,7 @@ function drawChart(box, series, target) {
 
   for (const s of series) {
     const d = s.points.map((p, i) => `${i ? 'L' : 'M'}${x(p.t).toFixed(1)} ${y(p.price).toFixed(1)}`).join('');
-    root.append(svg('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round' }));
+    root.append(svg('path', { d, fill: 'none', stroke: s.color, 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', ...(s.dash ? { 'stroke-dasharray': s.dash } : {}) }));
   }
 
   const dotAt = (pt, color) =>
@@ -430,7 +437,7 @@ function drawChart(box, series, target) {
     tip.replaceChildren(
       h('div', { class: 'muted' }, dateTime(t)),
       ...(multi
-        ? rows.map(({ s, pt }) => h('div', {}, h('i', { class: 'swatch', style: `background:${s.color}` }), `${s.name} `, h('b', {}, money(pt.price))))
+        ? rows.map(({ s, pt }) => h('div', {}, h('i', { class: s.dash ? 'swatch dashed' : 'swatch', style: `--c:${s.color}` }), `${s.name} `, h('b', {}, money(pt.price))))
         : [h('div', {}, h('b', {}, money(rows[0].pt.price)), ` at ${rows[0].pt.store}`)]),
     );
     tip.hidden = false;

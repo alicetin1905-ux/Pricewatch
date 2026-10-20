@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { amazonProvider, parseAmazonResults, parseDomains } from '../providers/amazon.js';
 import { combineProviders } from '../providers/combine.js';
+import { bolProvider, parseBolResults } from '../providers/bol.js';
 import { pickProvider } from '../providers/index.js';
 import { storeSeries } from '../lib/offers.js';
 
@@ -62,12 +63,18 @@ test('combineProviders merges sources, keeps the cheapest duplicate store and su
   await assert.rejects(combineProviders([c], 'x').fetchOffers('q'), /down/);
 });
 
-test('pickProvider enables the three Amazon marketplaces by default with a key', () => {
+test('pickProvider enables Amazon and bol.com by default with a key, and each can be switched off', () => {
   assert.equal(pickProvider({}).demo, true);
-  assert.equal(pickProvider({ SERPAPI_KEY: 'k' }).name, 'Google Shopping + Amazon');
-  assert.equal(pickProvider({ SERPAPI_KEY: 'k', AMAZON_DOMAINS: '' }).name, 'serpapi');
-  assert.equal(pickProvider({ SERPAPI_KEY: 'k', GOOGLE_SHOPPING: '0' }).name, 'amazon');
-  assert.throws(() => pickProvider({ SERPAPI_KEY: 'k', GOOGLE_SHOPPING: '0', AMAZON_DOMAINS: '' }), /Nothing to search/);
+  const key = { SERPAPI_KEY: 'k' };
+  assert.equal(pickProvider(key).name, 'Google Shopping + Amazon + bol.com');
+  assert.equal(pickProvider({ ...key, BOL: '0' }).name, 'Google Shopping + Amazon');
+  assert.equal(pickProvider({ ...key, AMAZON_DOMAINS: '', BOL: '0' }).name, 'serpapi');
+  assert.equal(pickProvider({ ...key, GOOGLE_SHOPPING: '0', BOL: '0' }).name, 'amazon');
+  assert.equal(pickProvider({ ...key, GOOGLE_SHOPPING: '0', AMAZON_DOMAINS: '' }).name, 'bol.com');
+  assert.throws(
+    () => pickProvider({ ...key, GOOGLE_SHOPPING: '0', AMAZON_DOMAINS: '', BOL: '0' }),
+    /Nothing to search/,
+  );
 });
 
 test('storeSeries groups history per matching store', () => {
@@ -80,4 +87,32 @@ test('storeSeries groups history per matching store', () => {
   assert.deepEqual(storeSeries(product, (s) => s.startsWith('Amazon.')), [
     { store: 'Amazon.de', points: [{ t: 1, price: 10 }, { t: 2, price: 8 }] },
   ]);
+});
+
+test('parseBolResults picks the cheapest bol.com listing and ignores accessory-priced ones', () => {
+  const json = {
+    shopping_results: [
+      { source: 'Coolblue', extracted_price: 330 },
+      { source: 'MediaMarkt', extracted_price: 340 },
+      { source: 'bol.com', extracted_price: 12, title: 'Ear pads' },
+      { source: 'bol.com', extracted_price: 319, title: 'Headphones', product_link: 'https://www.bol.com/nl/p/x' },
+      { source: 'bol', extracted_price: 325, title: 'Headphones (resale)' },
+      { source: 'Amazon.de', extracted_price: 300 },
+    ],
+  };
+  const offer = parseBolResults(json);
+  assert.deepEqual([offer.store, offer.price, offer.url, offer.title], ['bol.com', 319, 'https://www.bol.com/nl/p/x', 'Headphones']);
+  assert.equal(parseBolResults({ shopping_results: [{ source: 'Coolblue', extracted_price: 330 }] }), null);
+  assert.equal(parseBolResults({}), null);
+});
+
+test('bolProvider searches Google Shopping for the product on bol.com and warns when nothing is found', async () => {
+  let url;
+  const fetchImpl = async (u) => { url = new URL(u); return { ok: true, json: async () => ({ shopping_results: [] }) }; };
+  const offers = await bolProvider({ apiKey: 'k', fetchImpl }).fetchOffers('sony xm5');
+  assert.equal(url.searchParams.get('engine'), 'google_shopping');
+  assert.equal(url.searchParams.get('q'), 'sony xm5 bol.com');
+  assert.equal(url.searchParams.get('gl'), 'nl');
+  assert.equal(offers.length, 0);
+  assert.deepEqual(offers.warnings, ['bol.com: no listing found in Google Shopping results']);
 });

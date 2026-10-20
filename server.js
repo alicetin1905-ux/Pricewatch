@@ -105,14 +105,14 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
       return summarize(product);
     }
 
-    const match = path.match(/^\/api\/products\/([\w-]+)(\/history|\/refresh|\/amazon)?$/);
+    const match = path.match(/^\/api\/products\/([\w-]+)(\/history|\/refresh|\/compare)?$/);
     if (match) {
       const [, id, sub] = match;
       const product = need(id);
 
       if (method === 'GET' && sub === '/history') return historySeries(product);
 
-      if (method === 'GET' && sub === '/amazon') return storeSeries(product, (s) => /^amazon\./i.test(s));
+      if (method === 'GET' && sub === '/compare') return storeSeries(product, (s) => /^amazon\.|^bol\.com$/i.test(s));
 
       if (method === 'POST' && sub === '/refresh') {
         await refresh(product);

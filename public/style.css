@@ -206,6 +206,7 @@ details .scroll { max-height: 240px; overflow: auto; }
 
 .summary { margin: 8px 0 0; font-size: 14px; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 8px 0 0; padding: 0; list-style: none; font-size: 13px; color: var(--text-secondary); }
-.legend i, .tooltip .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; }
+.legend i, .tooltip .swatch { display: inline-block; width: 14px; height: 10px; border-radius: 3px; margin-right: 6px; background: var(--c); }
+.legend i.dashed, .tooltip .swatch.dashed { height: 0; border-radius: 0; background: none; border-top: 2px dashed var(--c); vertical-align: middle; }
 .clip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .offer > span:first-child { min-width: 0; }

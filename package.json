@@ -4,7 +4,7 @@
   "description": "Dashboard that tracks the best online price for products you care about",
   "type": "module",
   "private": true,
-  "engines": { "node": ">=20" },
+  "engines": { "node": ">=20.12" },
   "scripts": {
     "start": "node server.js",
     "test": "node --test \"test/*.test.js\""

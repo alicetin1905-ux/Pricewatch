@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { extname, join, normalize, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -41,13 +41,27 @@ function parseName(value) {
   return name;
 }
 
-export async function createApp({ dataFile, provider, currency = 'USD' }) {
+const digest = (text) => createHash('sha256').update(text).digest();
+
+// HTTP Basic auth: any username, the configured password.
+function isAuthorized(req, passwordDigest) {
+  if (!passwordDigest) return true;
+  const header = /^Basic (.+)$/.exec(req.headers.authorization ?? '');
+  if (!header) return false;
+  const decoded = Buffer.from(header[1], 'base64').toString('utf8');
+  const colon = decoded.indexOf(':');
+  return colon >= 0 && timingSafeEqual(digest(decoded.slice(colon + 1)), passwordDigest);
+}
+
+export async function createApp({ dataFile, provider, currency = 'USD', password = '' }) {
+  const passwordDigest = password ? digest(password) : null;
   const db = await new Db(dataFile).load();
   const inFlight = new Set();
 
   async function refresh(product) {
     if (inFlight.has(product.id)) return;
     inFlight.add(product.id);
+    product.lastAttempt = Date.now();
     try {
       const raw = await provider.fetchOffers(product.name);
       const warnings = raw.warnings ?? [];
@@ -67,6 +81,15 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
   async function refreshAll() {
     for (const product of db.products) await refresh(product);
     await db.save();
+  }
+
+  // Timers don't count time the machine spends asleep, so rather than one long
+  // interval the caller polls this and each product is refreshed once it's due.
+  async function refreshStale(maxAgeMs) {
+    const due = db.products.filter((p) => Date.now() - (p.lastAttempt ?? p.history.at(-1)?.t ?? 0) >= maxAgeMs);
+    for (const product of due) await refresh(product);
+    if (due.length) await db.save();
+    return due.length;
   }
 
   const state = () => ({
@@ -168,6 +191,11 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
   }
 
   const server = createServer(async (req, res) => {
+    if (!isAuthorized(req, passwordDigest)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Pricewatch", charset="UTF-8"' });
+      res.end('Authentication required');
+      return;
+    }
     try {
       const { pathname } = new URL(req.url, 'http://localhost');
       if (pathname.startsWith('/api/')) {
@@ -187,27 +215,43 @@ export async function createApp({ dataFile, provider, currency = 'USD' }) {
     }
   });
 
-  return { server, refreshAll, db };
+  return { server, refreshAll, refreshStale, db };
 }
 
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 
 if (isMain) {
+  // Settings can live in a .env file next to this one (see .env.example).
+  try {
+    process.loadEnvFile(join(ROOT, '.env'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
+
   const provider = pickProvider();
   const port = Number(process.env.PORT ?? 3000);
-  // Bound to localhost: the API has no authentication.
   const host = process.env.HOST ?? '127.0.0.1';
+  const password = process.env.AUTH_PASSWORD ?? '';
+  const loopback = ['127.0.0.1', '::1', 'localhost'].includes(host);
+  if (!loopback && !password) {
+    throw new Error(`HOST=${host} exposes Pricewatch to the network; set AUTH_PASSWORD first`);
+  }
   const defaultMinutes = provider.demo ? 60 : 1440;
   const minutes = Number(process.env.REFRESH_MINUTES ?? defaultMinutes);
 
-  const { server, refreshAll } = await createApp({
+  const { server, refreshStale } = await createApp({
     dataFile: process.env.DATA_FILE ?? join(ROOT, 'data', 'db.json'),
     provider,
     currency: process.env.CURRENCY ?? 'EUR',
+    password,
   });
 
   server.listen(port, host, () => {
-    console.log(`Pricewatch on http://${host}:${port} (provider: ${provider.name}, refresh every ${minutes} min)`);
+    console.log(`Pricewatch on http://${host}:${port} (provider: ${provider.name}, refresh every ${minutes} min${password ? ', password required' : ''})`);
   });
-  if (minutes > 0) setInterval(() => refreshAll().catch(console.error), minutes * 60_000).unref();
+  if (minutes > 0) {
+    const tick = () => refreshStale(minutes * 60_000).catch(console.error);
+    tick();
+    setInterval(tick, 5 * 60_000).unref();
+  }
 }

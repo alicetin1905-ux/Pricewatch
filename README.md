@@ -5,12 +5,46 @@ Add a product, optionally set a target price, and Pricewatch re-checks the store
 on a schedule, keeps the price history, and shows the cheapest current offer, the
 change since the last check, and a price chart.
 
-No dependencies; needs Node 20+.
+No dependencies; needs Node 20.12+.
 
 ```sh
 npm start          # http://127.0.0.1:3000
 npm test
 ```
+
+## Run it on your Mac
+
+This keeps it running in the background, starts it at login and restarts it if it crashes.
+
+```sh
+brew install node                      # if you don't have Node 20.12+
+git clone https://github.com/alicetin1905-ux/Pricewatch
+cd Pricewatch
+git checkout claude/pricewatch-dashboard   # until this branch is merged into master
+./scripts/install-mac.sh
+```
+
+Open http://127.0.0.1:3000. The installer creates a `.env` file; put your `SERPAPI_KEY` in
+it for real prices (demo prices until then) and apply it with
+`launchctl kickstart -k gui/$(id -u)/com.pricewatch`.
+
+- Logs: `~/Library/Logs/Pricewatch/pricewatch.log`
+- Your data: `data/db.json` in the project folder
+- Update: `git pull`, then the `launchctl kickstart` command above
+- Remove: `./scripts/uninstall-mac.sh` (keeps `data/`)
+
+**Sleep:** a sleeping Mac checks nothing. Checks are caught up when it wakes (within
+5 minutes), so gaps in the history are fine, but for steady checks leave the Mac on power
+and enable *System Settings → Battery/Energy → Prevent automatic sleeping when the display
+is off*.
+
+**Opening it from your phone or another computer.** By default it only listens on the Mac
+itself. To reach it from other devices, put `HOST=0.0.0.0` and `AUTH_PASSWORD=...` in `.env`
+(it refuses to start on the network without a password), then browse to
+`http://<mac-name>.local:3000`. The password is sent unencrypted over plain HTTP, so that's
+fine at home but not over the internet. For access from anywhere, keep `HOST` as it is and
+use [Tailscale](https://tailscale.com) (`tailscale serve 3000` gives you HTTPS inside your
+own private network) instead of opening a port on your router.
 
 ## Price sources
 
@@ -63,10 +97,13 @@ To add another source, add a file in `providers/` exporting
 
 ## Configuration
 
+Set these in the environment or in a `.env` file (see `.env.example`).
+
 | Env var | Default | |
 |---|---|---|
 | `PORT` | `3000` | |
-| `HOST` | `127.0.0.1` | The API has no auth; only change this behind something that does. |
+| `HOST` | `127.0.0.1` | Anything other than localhost requires `AUTH_PASSWORD`. |
+| `AUTH_PASSWORD` | none | Asks for this password (any username) on every request. |
 | `REFRESH_MINUTES` | `60` demo / `1440` live | `0` disables background refresh |
 | `CURRENCY` | `EUR` | Display currency (ISO code). All sources should return the same currency. |
 | `SERPAPI_GL` | `be` | Country for Google Shopping results |

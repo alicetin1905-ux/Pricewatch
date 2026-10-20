@@ -197,7 +197,9 @@ details .scroll { max-height: 240px; overflow: auto; }
   .hide-sm { display: none; }
   .offer { grid-template-columns: 1fr auto; }
   .offer .bar { grid-column: 1 / -1; order: 3; }
-  th, td { padding: 10px; }
+  th, td { padding: 10px 6px; }
+  .row-actions { padding-left: 0; }
+  .row-actions .icon-btn { width: 28px; height: 28px; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -210,3 +212,24 @@ details .scroll { max-height: 240px; overflow: auto; }
 .legend i.dashed, .tooltip .swatch.dashed { height: 0; border-radius: 0; background: none; border-top: 2px dashed var(--c); vertical-align: middle; }
 .clip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .offer > span:first-child { min-width: 0; }
+
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.row-actions { width: 1%; padding-left: 4px; text-align: right; white-space: nowrap; }
+.icon-btn {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-color: transparent;
+  background: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+.icon-btn:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); }
+
+main > * { min-width: 0; }
+.store-sub { display: none; font-weight: 400; }
+@media (max-width: 420px) {
+  .store-col { display: none; }
+  .store-sub { display: block; }
+}

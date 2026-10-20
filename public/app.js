@@ -142,6 +142,16 @@ function renderKpis() {
   );
 }
 
+// Used by the delete button in the list and by "Stop tracking" in the detail panel.
+function removeProduct(p, button) {
+  return guarded(button, async () => {
+    if (!confirm(`Delete "${p.name}"? Its price history will be deleted too.`)) return;
+    await api('DELETE', `/api/products/${p.id}`);
+    if (selectedId === p.id) selectedId = null;
+    await reload();
+  });
+}
+
 function renderTable() {
   const rows = state.products.map((p) => {
     const select = () => selectProduct(p.id);
@@ -154,11 +164,19 @@ function renderTable() {
         h('button', { type: 'button', onclick: (e) => { e.stopPropagation(); select(); } }, p.name),
         p.lastError ? h('div', { class: 'muted up' }, `⚠ ${p.lastError}`) : h('div', { class: 'muted' }, `Checked ${ago(p.lastChecked)}`),
       ),
-      h('td', { class: 'num price' }, money(p.best?.price), p.atTarget ? h('span', { class: 'chip down' }, '✓ Target hit') : null),
-      h('td', {}, p.best?.store ?? '—'),
+      h('td', { class: 'num price' }, money(p.best?.price), h('div', { class: 'muted store-sub' }, p.best?.store ?? ''), p.atTarget ? h('span', { class: 'chip down' }, '✓ Target hit') : null),
+      h('td', { class: 'store-col' }, p.best?.store ?? '—'),
       h('td', { class: 'num' }, changeCell(p)),
       h('td', { class: 'hide-sm' }, p.targetPrice != null ? money(p.targetPrice) : h('span', { class: 'muted' }, '—')),
       h('td', { class: 'hide-sm' }, sparkline(p.spark)),
+      h('td', { class: 'row-actions' },
+        h('button', {
+          type: 'button',
+          class: 'icon-btn',
+          title: 'Delete',
+          'aria-label': `Delete ${p.name}`,
+          onclick: (e) => { e.stopPropagation(); removeProduct(p, e.currentTarget); },
+        }, '✕')),
     );
   });
   $('#products tbody').replaceChildren(...rows);
@@ -245,13 +263,8 @@ function renderDetail() {
     await api('POST', `/api/products/${p.id}/refresh`);
     await reload();
   });
-  const removeBtn = h('button', { type: 'button', class: 'link' }, 'Stop tracking');
-  removeBtn.onclick = () => guarded(removeBtn, async () => {
-    if (!confirm(`Stop tracking "${p.name}"? Its price history will be deleted.`)) return;
-    await api('DELETE', `/api/products/${p.id}`);
-    selectedId = null;
-    await reload();
-  });
+  const removeBtn = h('button', { type: 'button', class: 'link' }, 'Delete product');
+  removeBtn.onclick = () => removeProduct(p, removeBtn);
 
   const toggle = (value, label, current, set) =>
     h('button', { type: 'button', 'aria-pressed': String(current === value), onclick: () => { set(value); renderDetail(); } }, label);

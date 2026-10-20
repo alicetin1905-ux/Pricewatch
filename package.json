@@ -1,0 +1,12 @@
+{
+  "name": "pricewatch",
+  "version": "0.1.0",
+  "description": "Dashboard that tracks the best online price for products you care about",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test \"test/*.test.js\""
+  }
+}

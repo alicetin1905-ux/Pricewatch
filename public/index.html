@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pricewatch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232a78d6'/%3E%3Cpath d='M6 11l7 7 4-4 9 9' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Pricewatch</h1>
+      <p class="sub" id="sub">Best online price for the things you're watching</p>
+    </div>
+    <button id="refresh-all" type="button">Refresh all</button>
+  </header>
+
+  <main>
+    <div id="banner" class="banner" hidden></div>
+    <div id="error" class="error" role="alert" hidden></div>
+
+    <section class="kpis" id="kpis" aria-label="Summary"></section>
+
+    <form id="add" class="add card">
+      <label>
+        <span>Product</span>
+        <input name="name" required maxlength="120" placeholder="e.g. Sony WH-1000XM5" autocomplete="off">
+      </label>
+      <label>
+        <span>Alert at or below <small>(optional)</small></span>
+        <input name="targetPrice" type="number" min="0.01" step="0.01" inputmode="decimal" placeholder="250">
+      </label>
+      <button type="submit" class="primary">Track product</button>
+    </form>
+
+    <section class="card" aria-label="Tracked products">
+      <div class="table-wrap">
+        <table id="products">
+          <thead>
+            <tr>
+              <th scope="col">Product</th>
+              <th scope="col" class="num">Best price</th>
+              <th scope="col">Store</th>
+              <th scope="col" class="num">Since last check</th>
+              <th scope="col" class="hide-sm">Target</th>
+              <th scope="col" class="hide-sm">Trend</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="empty" class="empty" hidden>Nothing tracked yet. Add a product above to start comparing prices.</p>
+    </section>
+
+    <section class="card detail" id="detail" hidden aria-live="polite"></section>
+  </main>
+
+  <div id="tooltip" class="tooltip" role="presentation" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
